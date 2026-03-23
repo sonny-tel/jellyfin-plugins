@@ -18,7 +18,7 @@ A Jellyfin plugin that extends backdrop functionality with additional features.
 1. In Jellyfin, go to **Dashboard → Plugins → Repositories**.
 2. Add a new repository with this URL:
    ```
-   https://raw.githubusercontent.com/sonny-tel/jellyfin-homepage-backdrop/main/manifest.json
+   https://raw.githubusercontent.com/sonny-tel/jellyfin-backdrop-extended/main/manifest.json
    ```
 3. Go to **Catalog**, find **Backdrop Extended** under General, and install it.
 4. Restart Jellyfin.
