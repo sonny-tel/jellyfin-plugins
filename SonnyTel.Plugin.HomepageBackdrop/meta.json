@@ -1,0 +1,16 @@
+{
+  "guid": "3c8f4c97-2bc5-4e68-a60c-4e3b4a24c4b0",
+  "name": "Homepage Backdrop",
+  "description": "Cycles backdrop images on the Jellyfin homepage using items from all media libraries. Respects the standard Backdrops user display setting.",
+  "overview": "Cycles backdrop images on the homepage.",
+  "owner": "sonny-tel",
+  "category": "General",
+  "version": "1.0.0.0",
+  "changelog": "1.0.0.0 - Initial release",
+  "targetAbi": "10.11.0.0",
+  "timestamp": "2026-03-23T00:00:00Z",
+  "status": 0,
+  "autoUpdate": true,
+  "imagePath": "",
+  "assemblies": []
+}

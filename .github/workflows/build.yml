@@ -1,0 +1,40 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "manifest.json"
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Verify embedded resources
+        run: |
+          dll="SonnyTel.Plugin.HomepageBackdrop/bin/Release/net9.0/SonnyTel.Plugin.HomepageBackdrop.dll"
+          if ! strings "$dll" | grep -q "configPage.html"; then
+            echo "::error::configPage.html not embedded in DLL"
+            exit 1
+          fi
+          if ! strings "$dll" | grep -q "homepageBackdrop.js"; then
+            echo "::error::homepageBackdrop.js not embedded in DLL"
+            exit 1
+          fi
+          echo "All embedded resources verified."

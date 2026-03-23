@@ -1,0 +1,137 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Parse version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          # Normalize to four-part version
+          IFS='.' read -ra PARTS <<< "$TAG"
+          MAJOR="${PARTS[0]:-0}"
+          MINOR="${PARTS[1]:-0}"
+          BUILD="${PARTS[2]:-0}"
+          REV="${PARTS[3]:-0}"
+          VERSION="${MAJOR}.${MINOR}.${BUILD}.${REV}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Parsed version: ${VERSION}"
+
+      - name: Update meta.json version
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          jq --arg v "$VERSION" --arg t "$TIMESTAMP" \
+            '.version = $v | .timestamp = $t' \
+            SonnyTel.Plugin.HomepageBackdrop/meta.json > meta_tmp.json
+          mv meta_tmp.json SonnyTel.Plugin.HomepageBackdrop/meta.json
+
+      - name: Build
+        run: dotnet build --configuration Release
+
+      - name: Package plugin zip
+        id: package
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARTIFACT_NAME="homepage-backdrop_${VERSION}.zip"
+          OUT_DIR="SonnyTel.Plugin.HomepageBackdrop/bin/Release/net9.0"
+
+          cd "$OUT_DIR"
+          zip -j "../../../${ARTIFACT_NAME}" \
+            SonnyTel.Plugin.HomepageBackdrop.dll \
+            meta.json
+          cd -
+
+          echo "artifact=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Packaged: ${ARTIFACT_NAME}"
+
+      - name: Compute checksum
+        id: checksum
+        run: |
+          ARTIFACT="${{ steps.package.outputs.artifact }}"
+          MD5=$(md5sum "$ARTIFACT" | awk '{print $1}')
+          echo "md5=${MD5}" >> "$GITHUB_OUTPUT"
+          echo "MD5: ${MD5}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.artifact }}
+          generate_release_notes: true
+          draft: true
+
+      - name: Update manifest.json
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          CHECKSUM="${{ steps.checksum.outputs.md5 }}"
+          ARTIFACT="${{ steps.package.outputs.artifact }}"
+          TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          SOURCE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${TAG}/${ARTIFACT}"
+
+          # Build the new version entry and upsert into manifest
+          jq --arg v "$VERSION" \
+             --arg cl "See release notes" \
+             --arg abi "10.11.0.0" \
+             --arg url "$SOURCE_URL" \
+             --arg cs "$CHECKSUM" \
+             --arg ts "$TIMESTAMP" \
+            '.[0].versions = [
+              {
+                "version": $v,
+                "changelog": $cl,
+                "targetAbi": $abi,
+                "sourceUrl": $url,
+                "checksum": $cs,
+                "timestamp": $ts
+              }
+            ] + ([.[0].versions[] | select(.version != $v)])' \
+            manifest.json > manifest_tmp.json
+          mv manifest_tmp.json manifest.json
+
+          echo "Updated manifest.json:"
+          cat manifest.json
+
+      - name: Prepare Pages content
+        run: |
+          mkdir -p _pages
+          cp manifest.json _pages/manifest.json
+
+      - name: Upload manifest as Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _pages
+          name: github-pages
+
+  deploy-pages:
+    needs: release
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
