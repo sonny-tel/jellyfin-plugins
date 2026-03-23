@@ -9,10 +9,10 @@
     var POLL_INTERVAL_MS = 2000;
 
     var rotationTimer = null;
-    var pollTimer = null;
     var currentImages = [];
     var currentIndex = -1;
     var isActive = false;
+    var currentLoadingImage = null;
 
     console.log(LOG_PREFIX, 'Script loaded');
 
@@ -20,11 +20,9 @@
 
     function isHomePage() {
         var hash = window.location.hash;
-        // Jellyfin 10.11.x uses hash router: #/home, #/home?tab=0, etc.
         if (hash === '#/home' || hash.indexOf('#/home?') === 0) {
             return true;
         }
-        // Legacy formats (redirected by Jellyfin but check anyway)
         if (hash === '#!/home' || hash.indexOf('#!/home?') === 0) {
             return true;
         }
@@ -41,7 +39,44 @@
         return false;
     }
 
-    // --- Backdrop management ---
+    // Detect the browser's animationend event name
+    function whichAnimationEvent() {
+        var el = document.createElement('div');
+        var animations = {
+            'animation': 'animationend',
+            'OAnimation': 'oAnimationEnd',
+            'MozAnimation': 'animationend',
+            'WebkitAnimation': 'webkitAnimationEnd'
+        };
+        for (var key in animations) {
+            if (el.style[key] !== undefined) {
+                return animations[key];
+            }
+        }
+        return 'animationend';
+    }
+
+    var animationEndEvent = whichAnimationEvent();
+
+    // --- Backdrop management (matches jellyfin-web backdrop.js) ---
+
+    function getBackdropContainer() {
+        return document.querySelector('.backdropContainer');
+    }
+
+    function getBackgroundContainer() {
+        return document.querySelector('.backgroundContainer');
+    }
+
+    function setBackgroundEnabled(enabled) {
+        var bg = getBackgroundContainer();
+        if (!bg) return;
+        if (enabled) {
+            bg.classList.add('withBackdrop');
+        } else {
+            bg.classList.remove('withBackdrop');
+        }
+    }
 
     function clearPluginBackdrop() {
         if (!isActive) {
@@ -52,10 +87,14 @@
         currentImages = [];
         currentIndex = -1;
         isActive = false;
+        if (currentLoadingImage) {
+            currentLoadingImage.onload = null;
+            currentLoadingImage = null;
+        }
     }
 
     function setBackdropImage(url) {
-        var container = document.querySelector('.backdropContainer');
+        var container = getBackdropContainer();
         if (!container) {
             console.warn(LOG_PREFIX, 'No .backdropContainer found');
             return;
@@ -63,31 +102,59 @@
 
         var existing = container.querySelector('.displayingBackdropImage');
 
-        var img = document.createElement('div');
-        img.classList.add('backdropImage', 'displayingBackdropImage', 'backdropImageFadeIn');
-        img.style.backgroundImage = "url('" + url + "')";
-        container.appendChild(img);
-
-        var bgContainer = document.querySelector('.backgroundContainer');
-        if (bgContainer) {
-            bgContainer.classList.add('withBackdrop');
+        // Skip if already showing this URL (same as native code)
+        if (existing && existing.getAttribute('data-url') === url) {
+            return;
         }
 
-        if (existing) {
-            setTimeout(function () {
-                if (existing.parentNode) {
-                    existing.parentNode.removeChild(existing);
-                }
-            }, 1000);
+        // Preload the image before showing it (matches native Backdrop.load)
+        if (currentLoadingImage) {
+            currentLoadingImage.onload = null;
         }
+
+        var preload = new Image();
+        currentLoadingImage = preload;
+
+        preload.onload = function () {
+            currentLoadingImage = null;
+
+            if (!isActive) return;
+
+            var backdropImage = document.createElement('div');
+            backdropImage.classList.add('backdropImage');
+            backdropImage.classList.add('displayingBackdropImage');
+            backdropImage.style.backgroundImage = "url('" + url + "')";
+            backdropImage.setAttribute('data-url', url);
+            backdropImage.classList.add('backdropImageFadeIn');
+            container.appendChild(backdropImage);
+
+            setBackgroundEnabled(true);
+
+            // Remove old image after fade-in animation completes (matches native)
+            if (existing) {
+                var onAnimEnd = function () {
+                    backdropImage.removeEventListener(animationEndEvent, onAnimEnd);
+                    if (existing.parentNode) {
+                        existing.parentNode.removeChild(existing);
+                    }
+                };
+                backdropImage.addEventListener(animationEndEvent, onAnimEnd, { once: true });
+            }
+        };
+
+        preload.src = url;
     }
 
     function onRotationTick() {
         if (isVideoPlaying() || currentImages.length === 0) {
             return;
         }
-        currentIndex = (currentIndex + 1) % currentImages.length;
-        setBackdropImage(currentImages[currentIndex]);
+        var newIndex = currentIndex + 1;
+        if (newIndex >= currentImages.length) {
+            newIndex = 0;
+        }
+        currentIndex = newIndex;
+        setBackdropImage(currentImages[newIndex]);
     }
 
     function startRotation(images) {
@@ -109,20 +176,20 @@
         }
     }
 
-    // --- API interaction ---
+    // --- Settings check ---
 
-    function checkBackdropsEnabled(apiClient) {
+    // The enableBackdrops setting is stored in localStorage as "{userId}-enableBackdrops".
+    // Default is false (off). It is NOT stored in server DisplayPreferences.
+    function checkBackdropsEnabled() {
+        var apiClient = window.ApiClient;
+        if (!apiClient) return false;
         var userId = apiClient.getCurrentUserId();
-        return apiClient.getDisplayPreferences('usersettings', userId, 'emby').then(function (prefs) {
-            var custom = prefs && prefs.CustomPrefs;
-            if (!custom) {
-                // No custom prefs means default — backdrops are ON by default
-                return true;
-            }
-            // Jellyfin treats backdrops as enabled unless explicitly set to 'false'
-            return custom.enableBackdrops !== 'false';
-        });
+        if (!userId) return false;
+        var val = localStorage.getItem(userId + '-enableBackdrops');
+        return val === 'true';
     }
+
+    // --- API interaction ---
 
     function fetchBackdropItems(apiClient) {
         var userId = apiClient.getCurrentUserId();
@@ -159,7 +226,6 @@
     function activateHomepageBackdrop() {
         var apiClient = window.ApiClient;
         if (!apiClient || !apiClient.getCurrentUserId()) {
-            console.log(LOG_PREFIX, 'ApiClient not ready yet');
             return;
         }
 
@@ -167,44 +233,41 @@
             return;
         }
 
-        console.log(LOG_PREFIX, 'Checking if backdrops enabled...');
-        checkBackdropsEnabled(apiClient).then(function (enabled) {
-            if (!enabled) {
-                console.log(LOG_PREFIX, 'Backdrops disabled in user settings');
+        if (!checkBackdropsEnabled()) {
+            console.log(LOG_PREFIX, 'Backdrops disabled in user settings');
+            return;
+        }
+
+        console.log(LOG_PREFIX, 'Fetching backdrop items...');
+        fetchBackdropItems(apiClient).then(function (items) {
+            console.log(LOG_PREFIX, 'Got', items.length, 'items');
+            if (items.length === 0) {
                 return;
             }
 
-            console.log(LOG_PREFIX, 'Fetching backdrop items...');
-            return fetchBackdropItems(apiClient).then(function (items) {
-                console.log(LOG_PREFIX, 'Got', items.length, 'items');
-                if (items.length === 0) {
+            var urls = buildImageUrls(apiClient, items);
+            console.log(LOG_PREFIX, 'Built', urls.length, 'image URLs');
+            if (urls.length === 0) {
+                return;
+            }
+
+            // Delay to let native backdrop code finish, then replace
+            setTimeout(function () {
+                if (!isHomePage()) {
                     return;
                 }
-
-                var urls = buildImageUrls(apiClient, items);
-                console.log(LOG_PREFIX, 'Built', urls.length, 'image URLs');
-                if (urls.length === 0) {
-                    return;
+                var container = getBackdropContainer();
+                if (container) {
+                    container.innerHTML = '';
                 }
-
-                // Wait a moment for native backdrop to finish, then replace it
-                setTimeout(function () {
-                    if (!isHomePage()) {
-                        return;
-                    }
-                    var container = document.querySelector('.backdropContainer');
-                    if (container) {
-                        container.innerHTML = '';
-                    }
-                    startRotation(urls);
-                }, 500);
-            });
+                startRotation(urls);
+            }, 500);
         }).catch(function (err) {
             console.error(LOG_PREFIX, 'Error:', err);
         });
     }
 
-    // --- Polling approach (robust) ---
+    // --- Navigation detection ---
 
     function pollCheck() {
         if (isHomePage()) {
@@ -216,10 +279,8 @@
         }
     }
 
-    // Start polling — handles initial load, SPA navigation, and any edge cases
-    pollTimer = setInterval(pollCheck, POLL_INTERVAL_MS);
+    setInterval(pollCheck, POLL_INTERVAL_MS);
 
-    // Also respond to navigation events for faster activation
     window.addEventListener('hashchange', function () {
         console.log(LOG_PREFIX, 'hashchange:', window.location.hash);
         setTimeout(pollCheck, 300);
