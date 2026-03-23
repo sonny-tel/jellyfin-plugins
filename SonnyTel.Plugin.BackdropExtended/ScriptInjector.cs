@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Text;
+using System.Text.Json;
 using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -29,7 +31,16 @@ public sealed class ScriptInjector : IHostedService
     /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        InjectScript();
+        if (IsPluginEnabled())
+        {
+            InjectScript();
+        }
+        else
+        {
+            _logger.LogInformation("Backdrop Extended plugin is disabled, removing script tag if present");
+            RemoveScript();
+        }
+
         return Task.CompletedTask;
     }
 
@@ -38,6 +49,41 @@ public sealed class ScriptInjector : IHostedService
     {
         RemoveScript();
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Checks whether the plugin is enabled by reading the status from meta.json.
+    /// PluginStatus.Active == 0. Any other value means the plugin is disabled/inactive.
+    /// </summary>
+    internal static bool IsPluginEnabled()
+    {
+        try
+        {
+            var assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            if (assemblyDir is null)
+            {
+                return true;
+            }
+
+            var metaPath = Path.Combine(assemblyDir, "meta.json");
+            if (!File.Exists(metaPath))
+            {
+                return true;
+            }
+
+            using var doc = JsonDocument.Parse(File.ReadAllBytes(metaPath));
+            if (doc.RootElement.TryGetProperty("status", out var statusProp)
+                && statusProp.ValueKind == JsonValueKind.Number)
+            {
+                return statusProp.GetInt32() == 0; // 0 = Active
+            }
+
+            return true;
+        }
+        catch
+        {
+            return true; // assume enabled if we can't determine status
+        }
     }
 
     private string GetIndexPath()

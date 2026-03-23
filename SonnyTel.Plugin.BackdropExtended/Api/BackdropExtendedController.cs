@@ -23,6 +23,11 @@ public class BackdropExtendedController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult GetClientScript()
     {
+        if (!ScriptInjector.IsPluginEnabled())
+        {
+            return NotFound();
+        }
+
         var assembly = Assembly.GetExecutingAssembly();
         var resourceName = "SonnyTel.Plugin.BackdropExtended.Web.backdropExtended.js";
 

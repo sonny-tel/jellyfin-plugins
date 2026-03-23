@@ -12,5 +12,5 @@
   "status": 0,
   "autoUpdate": true,
   "imagePath": "",
-  "assemblies": []
+  "assemblies": ["SonnyTel.Plugin.BackdropExtended.dll"]
 }

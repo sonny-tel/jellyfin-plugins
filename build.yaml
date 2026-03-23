@@ -9,6 +9,8 @@ description: >
   Extends Jellyfin's backdrop functionality with additional features, including
   cycling backdrop images on the homepage using all media sources.
 category: General
+assemblies:
+  - SonnyTel.Plugin.BackdropExtended.dll
 artifacts:
   - SonnyTel.Plugin.BackdropExtended.dll
 changelog: |
