@@ -18,7 +18,7 @@ A Jellyfin plugin that cycles backdrop images on the homepage, since I could not
 1. In Jellyfin, go to **Dashboard → Plugins → Repositories**.
 2. Add a new repository with this URL:
    ```
-   https://sonny-tel.github.io/jellyfin-homepage-backdrop/manifest.json
+   https://raw.githubusercontent.com/sonny-tel/jellyfin-homepage-backdrop/main/manifest.json
    ```
 3. Go to **Catalog**, find **Homepage Backdrop** under General, and install it.
 4. Restart Jellyfin.

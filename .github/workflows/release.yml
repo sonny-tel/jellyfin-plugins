@@ -7,8 +7,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
   release:
@@ -88,7 +86,6 @@ jobs:
           TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           SOURCE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${TAG}/${ARTIFACT}"
 
-          # Build the new version entry and upsert into manifest
           jq --arg v "$VERSION" \
              --arg cl "See release notes" \
              --arg abi "10.11.0.0" \
@@ -108,30 +105,11 @@ jobs:
             manifest.json > manifest_tmp.json
           mv manifest_tmp.json manifest.json
 
-          echo "Updated manifest.json:"
-          cat manifest.json
-
-      - name: Prepare Pages content
+      - name: Commit updated manifest.json
         run: |
-          mkdir -p _pages
-          cp manifest.json _pages/manifest.json
-
-      - name: Upload manifest as Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: _pages
-          name: github-pages
-
-  deploy-pages:
-    needs: release
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    permissions:
-      pages: write
-      id-token: write
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout main
+          git add manifest.json
+          git commit -m "Update manifest.json for v${{ steps.version.outputs.tag }}"
+          git push origin main
