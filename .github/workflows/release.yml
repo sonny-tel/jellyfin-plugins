@@ -75,7 +75,6 @@ jobs:
         with:
           files: ${{ steps.package.outputs.artifact }}
           generate_release_notes: true
-          draft: true
 
       - name: Update manifest.json
         run: |
