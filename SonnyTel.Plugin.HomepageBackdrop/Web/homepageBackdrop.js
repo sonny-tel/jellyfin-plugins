@@ -12,6 +12,7 @@
     var currentImages = [];
     var currentIndex = -1;
     var isActive = false;
+    var isActivating = false;
     var currentLoadingImage = null;
 
     console.log(LOG_PREFIX, 'Script loaded');
@@ -87,6 +88,7 @@
         currentImages = [];
         currentIndex = -1;
         isActive = false;
+        isActivating = false;
         if (currentLoadingImage) {
             currentLoadingImage.onload = null;
             currentLoadingImage = null;
@@ -233,11 +235,14 @@
             return;
         }
 
-        if (isActive) {
+        if (isActive || isActivating) {
             return;
         }
 
+        isActivating = true;
+
         if (!checkBackdropsEnabled()) {
+            isActivating = false;
             console.log(LOG_PREFIX, 'Backdrops disabled in user settings');
             return;
         }
@@ -246,17 +251,20 @@
         fetchBackdropItems(apiClient).then(function (items) {
             console.log(LOG_PREFIX, 'Got', items.length, 'items');
             if (items.length === 0) {
+                isActivating = false;
                 return;
             }
 
             var urls = buildImageUrls(apiClient, items);
             console.log(LOG_PREFIX, 'Built', urls.length, 'image URLs');
             if (urls.length === 0) {
+                isActivating = false;
                 return;
             }
 
             // Delay to let native backdrop code finish, then replace
             setTimeout(function () {
+                isActivating = false;
                 if (!isHomePage()) {
                     return;
                 }
@@ -267,6 +275,7 @@
                 startRotation(urls);
             }, 500);
         }).catch(function (err) {
+            isActivating = false;
             console.error(LOG_PREFIX, 'Error:', err);
         });
     }
