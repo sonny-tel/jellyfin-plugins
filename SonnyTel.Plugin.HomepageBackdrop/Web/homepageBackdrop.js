@@ -116,9 +116,11 @@
         return apiClient.getDisplayPreferences('usersettings', userId, 'emby').then(function (prefs) {
             var custom = prefs && prefs.CustomPrefs;
             if (!custom) {
-                return false;
+                // No custom prefs means default — backdrops are ON by default
+                return true;
             }
-            return custom.enableBackdrops === 'true';
+            // Jellyfin treats backdrops as enabled unless explicitly set to 'false'
+            return custom.enableBackdrops !== 'false';
         });
     }
 
@@ -224,10 +226,6 @@
     });
 
     document.addEventListener('viewshow', function () {
-        setTimeout(pollCheck, 300);
-    });
-
-    document.addEventListener('pageshow', function () {
         setTimeout(pollCheck, 300);
     });
 
