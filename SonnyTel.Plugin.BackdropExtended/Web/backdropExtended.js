@@ -15,8 +15,8 @@
     var activationGeneration = 0;
     var currentLoadingImage = null;
     var activeParentId = null; // tracks which library we're showing backdrops for
-    var lastBackdropUrl = null; // last image URL we displayed, used for restore guard
-    var backdropObserver = null;
+    var lastBackdropUrl = null; // last image URL we displayed
+    var containerGuardInstalled = false;
 
     // --- Helpers ---
 
@@ -296,49 +296,72 @@
 
     // --- Navigation detection ---
 
+    // --- Native backdrop suppression ---
+    // Jellyfin's autoBackdrops.js clears .backdropContainer on every page transition
+    // (via innerHTML='', replaceChildren(), etc.) and removes the withBackdrop class.
+    // We override those DOM methods on the container element so those clears become
+    // no-ops while our plugin is active on a backdrop page. This prevents the gray
+    // flash between page navigations entirely.
+
+    function shouldGuard() {
+        return lastBackdropUrl && isBackdropPage();
+    }
+
+    function installContainerGuard() {
+        if (containerGuardInstalled) return;
+        var container = getBackdropContainer();
+        if (!container) return;
+
+        var innerHTMLDesc = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+        Object.defineProperty(container, 'innerHTML', {
+            get: function () { return innerHTMLDesc.get.call(this); },
+            set: function (val) {
+                if (val === '' && shouldGuard()) return;
+                innerHTMLDesc.set.call(this, val);
+            },
+            configurable: true
+        });
+
+        var textContentDesc = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
+        Object.defineProperty(container, 'textContent', {
+            get: function () { return textContentDesc.get.call(this); },
+            set: function (val) {
+                if (val === '' && shouldGuard()) return;
+                textContentDesc.set.call(this, val);
+            },
+            configurable: true
+        });
+
+        var origReplaceChildren = container.replaceChildren.bind(container);
+        container.replaceChildren = function () {
+            if (arguments.length === 0 && shouldGuard()) return;
+            origReplaceChildren.apply(null, arguments);
+        };
+
+        containerGuardInstalled = true;
+    }
+
     function pollCheck() {
+        installContainerGuard();
+
         var listParentId = getListParentId();
         if (isHomePage()) {
             if (!isActive || activeParentId !== null) {
                 activateBackdrop(null);
+            } else {
+                // Re-assert withBackdrop in case native code removed it
+                setBackgroundEnabled(true);
             }
         } else if (listParentId) {
             if (!isActive || activeParentId !== listParentId) {
                 activateBackdrop(listParentId);
+            } else {
+                setBackgroundEnabled(true);
             }
         } else if (isActive) {
             // Left all backdrop pages — stop and let native code handle cleanup
             deactivateBackdrop();
         }
-    }
-
-    // --- Backdrop restore guard ---
-    // Native autoBackdrops.js clears .backdropContainer on every page transition.
-    // This observer detects that and instantly restores our last image so there's
-    // no visible gray flash. The callback runs before the next paint (microtask).
-    function setupBackdropGuard() {
-        var container = getBackdropContainer();
-        if (!container || backdropObserver) return;
-
-        backdropObserver = new MutationObserver(function () {
-            if (!lastBackdropUrl || !isBackdropPage()) return;
-
-            var c = getBackdropContainer();
-            if (!c) return;
-
-            // Only restore if the container was fully cleared (no images left)
-            if (!c.querySelector('.displayingBackdropImage')) {
-                var restored = document.createElement('div');
-                restored.classList.add('backdropImage');
-                restored.classList.add('displayingBackdropImage');
-                restored.style.backgroundImage = "url('" + lastBackdropUrl + "')";
-                restored.setAttribute('data-url', lastBackdropUrl);
-                c.appendChild(restored);
-                setBackgroundEnabled(true);
-            }
-        });
-
-        backdropObserver.observe(container, { childList: true });
     }
 
     setInterval(pollCheck, POLL_INTERVAL_MS);
@@ -351,6 +374,5 @@
         setTimeout(pollCheck, 300);
     });
 
-    // Start guarding against native backdrop clears once the container exists
-    setupBackdropGuard();
+    installContainerGuard();
 })();
