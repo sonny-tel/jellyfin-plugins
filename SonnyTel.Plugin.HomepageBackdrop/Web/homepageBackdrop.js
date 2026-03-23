@@ -191,6 +191,8 @@
 
     // --- API interaction ---
 
+    // Matches native autoBackdrops.js: IsFavoriteOrLiked,Random sort, PG-13 max,
+    // no IncludeItemTypes filter (all media sources).
     function fetchBackdropItems(apiClient) {
         var userId = apiClient.getCurrentUserId();
         return apiClient.getItems(userId, {
@@ -198,23 +200,25 @@
             Limit: FETCH_LIMIT,
             Recursive: true,
             ImageTypes: 'Backdrop',
-            EnableTotalRecordCount: false
+            EnableTotalRecordCount: false,
+            MaxOfficialRating: 'PG-13'
         }).then(function (result) {
             return result.Items || [];
         });
     }
 
+    // Native takes only the first backdrop tag per item.
     function buildImageUrls(apiClient, items) {
         var urls = [];
+        var screenWidth = Math.round(screen.availWidth);
         for (var i = 0; i < items.length; i++) {
             var item = items[i];
             if (item.BackdropImageTags && item.BackdropImageTags.length > 0) {
-                var tagIndex = Math.floor(Math.random() * item.BackdropImageTags.length);
                 urls.push(apiClient.getScaledImageUrl(item.Id, {
                     type: 'Backdrop',
-                    tag: item.BackdropImageTags[tagIndex],
-                    maxWidth: Math.round(screen.availWidth),
-                    index: tagIndex
+                    tag: item.BackdropImageTags[0],
+                    maxWidth: screenWidth,
+                    index: 0
                 }));
             }
         }
