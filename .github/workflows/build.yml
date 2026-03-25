@@ -21,16 +21,23 @@ jobs:
           dotnet-version: "9.0.x"
 
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore SonnyTel.Plugins.sln
 
       - name: Build
-        run: dotnet build --configuration Release --no-restore
+        run: dotnet build SonnyTel.Plugins.sln --configuration Release --no-restore
 
       - name: Verify embedded resources
         run: |
-          dll="SonnyTel.Plugin.BackdropExtended/bin/Release/net9.0/SonnyTel.Plugin.BackdropExtended.dll"
-          if ! strings "$dll" | grep -q "backdropExtended.js"; then
-            echo "::error::backdropExtended.js not embedded in DLL"
+          backdrop_dll="SonnyTel.Plugin.BackdropExtended/bin/Release/net9.0/SonnyTel.Plugin.BackdropExtended.dll"
+          if ! strings "$backdrop_dll" | grep -q "backdropExtended.js"; then
+            echo "::error::backdropExtended.js not embedded in BackdropExtended DLL"
             exit 1
           fi
-          echo "All embedded resources verified."
+          echo "BackdropExtended embedded resources verified."
+
+          music_dll="SonnyTel.Plugin.MusicPlayerFixes/bin/Release/net9.0/SonnyTel.Plugin.MusicPlayerFixes.dll"
+          if ! strings "$music_dll" | grep -q "musicPlayerFixes.js"; then
+            echo "::error::musicPlayerFixes.js not embedded in MusicPlayerFixes DLL"
+            exit 1
+          fi
+          echo "MusicPlayerFixes embedded resources verified."
