@@ -2,65 +2,48 @@
 // match the skip-back button behaviour: restart the current track when
 // position >= 5 s, go to previous track only when < 5 s in.
 //
-// Strategy: intercept at two layers we *can* reach from an injected
-// script (playbackManager is an ES module and not globally accessible):
-//   1. Capture-phase keydown for MediaTrackPrevious — fires before
-//      Jellyfin's keyboardNavigation handler.
-//   2. Wrap navigator.mediaSession.setActionHandler so the OS-level
-//      "previous track" control also gets the restart logic.
-// Seeking is done directly on the DOM <audio> element.
+// Strategy: delegate to the now-playing bar's .previousTrackButton whose
+// click handler already implements the restart-first logic. This works on
+// both the web client (HTML <audio>) and the desktop client (mpv) because
+// the button handler calls playbackManager methods that abstract the
+// underlying player. playbackManager itself is an ES module and not
+// globally reachable from an injected script, so going through the button
+// is the most reliable cross-client approach.
 (function () {
     'use strict';
 
-    var RESTART_THRESHOLD_S = 5;
-
-    /** Find the currently-playing <audio> element Jellyfin creates. */
-    function getActiveAudio() {
-        var audios = document.querySelectorAll('audio');
-        for (var i = 0; i < audios.length; i++) {
-            if (!audios[i].paused) return audios[i];
-        }
-        return null;
-    }
-
-    /**
-     * If audio is playing and position >= threshold, seek to 0.
-     * Returns true if we handled it (caller should suppress default).
-     */
-    function tryRestart() {
-        var audio = getActiveAudio();
-        if (!audio) return false;
-
-        if (audio.currentTime >= RESTART_THRESHOLD_S) {
-            var pos = audio.currentTime;
-            audio.currentTime = 0;
-            console.debug('[MusicPlayerFixes] Restarted track (was at ' + Math.round(pos) + 's)');
-            return true;
-        }
-        return false;
+    function findPreviousTrackButton() {
+        return document.querySelector('.previousTrackButton');
     }
 
     // --- 1. Keyboard interception (capture phase) -------------------
+    // Fires before jellyfin-web's keyboardNavigation handler, which
+    // would otherwise call playbackManager.previousTrack() directly.
     document.addEventListener('keydown', function (e) {
         if (e.key === 'MediaTrackPrevious') {
-            if (tryRestart()) {
+            var btn = findPreviousTrackButton();
+            if (btn) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
+                btn.click();
             }
         }
     }, true);
 
     // --- 2. Media Session wrapper -----------------------------------
+    // Wraps the 'previoustrack' handler so OS-level media controls
+    // (browser Media Session API) also get the restart-first behaviour.
     if (navigator.mediaSession) {
         var _origSetAction = navigator.mediaSession.setActionHandler.bind(navigator.mediaSession);
-        var _prevTrackHandler = null;
 
         navigator.mediaSession.setActionHandler = function (action, handler) {
             if (action === 'previoustrack') {
-                _prevTrackHandler = handler;
                 _origSetAction(action, function () {
-                    if (!tryRestart() && _prevTrackHandler) {
-                        _prevTrackHandler();
+                    var btn = findPreviousTrackButton();
+                    if (btn) {
+                        btn.click();
+                    } else if (handler) {
+                        handler();
                     }
                 });
             } else {
